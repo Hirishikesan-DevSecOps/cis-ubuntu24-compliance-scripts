@@ -14,6 +14,7 @@ pass() {
     ((pass_counter++))
     echo "$counter.[PASS] $1"
     echo "$pass_counter. $1" >> "$SUCCESS_LOG"
+    echo "" >> "$SUCCESS_LOG"
     echo ""
 }
 
@@ -22,6 +23,7 @@ fail() {
     ((fail_counter++))
     echo "$counter. [FAIL] $1"
     echo "$fail_counter. $1" >> "$ERROR_LOG"
+    echo "" >> "$ERROR_LOG"
     echo ""
 }
 
