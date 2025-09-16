@@ -3,8 +3,8 @@
 SUCCESS_LOG="success.log"
 ERROR_LOG="error.log"
 
-> "$SUCCESS_LOG"
-> "$ERROR_LOG"
+echo "$(date): Script started successfully"> "$SUCCESS_LOG"
+echo "$(date): Script started successfully"> "$ERROR_LOG"
 
 global counter=0
 pass_counter=0
@@ -30,9 +30,6 @@ fail() {
 #Ensure usb-storage kernel module is not available
 path="/etc/modprobe.d/"
 module="usb-storage"
-
-install_found=0
-blacklist_found=0
 
 for entry in "$path"*.conf; do
     if [ -f "$entry" ]; then
@@ -72,21 +69,42 @@ for entry in "${PARTITIONS[@]}"; do
     check_partition "$mount_point" "$setting_name"
 done
 
+Installed=(
+        #Ensure Apparmor has been installed
+        "apparmor"
+        #Ensure ufw has been installed
+        "ufw"
+        #Ensure iptables-persistent is not installed with ufw
+        "iptables-persistent"
+        #Ensure nftables is installed
+        "nftables"
+        )
 
-#Ensure Apparmor has been installed
-dpkg-query -s apparmor &>/dev/null && pass "Apparmor is installed" || fail "Apparmor is not installed"
+for entry in "${Installed[@]}"; do
+  if dpkg-query -s "$entry" &>/dev/null; then
+    pass "$entry is installed"
+  else
+    fail "$entry is not installed"
+  fi
+done
 
 
-#Ensure ufw has been installed
-dpkg-query -s ufw &>/dev/null && pass "UFW firwall is installed" || fail "UFW firewall is not installed"
 
+message="^[^#]*Authorized users only. All activity may be monitored and reported."
+path=(
+        #Ensure display message for /etc/issue has been configured
+        "/etc/issue"
+        #Ensure display message for /etc/issue.net has been configured
+        "/etc/issue.net"
+           )
 
-#Ensure display message for /etc/issue has been configured
-grep -q "^[^#]*Authorized users only. All activity may be monitored and reported." /etc/issue && pass "Message has been displayed correctly on /etc/issue" || fail "Message not available /etc/issue - This setting is Non Compliant"
-
-
-#Ensure display message for /etc/issue.net has been configured
-grep -q "^[^#]*Authorized users only. All activity may be monitored and reported." /etc/issue.net && pass "Message has been displayed correctly on /etc/issue.net" || fail "Message not available /etc/issue - This setting is Non Compliant"
+for entry in "${path[@]}"; do
+  if grep -q "$message" "$entry"; then 
+    pass "Message has been displayed correctly on $entry"
+  else
+    fail "Message not available $entry - This setting is Non Compliant"
+  fi
+done
 
 
 #Ensure GNOME/GDM screen locks settings is set
@@ -105,7 +123,11 @@ directory="/etc/dconf/db/local.d/"
 file=$directory/00-screensaver
 for entry in "${Screensaver_settings[@]}"; do
     if [ -f $directory ]; then
-        grep -q "^[^#]*$entry" $file && pass "$entry is present, So it's found to be compliant" || pass "$entry is not present, So it's found to be Non-compliant"
+        if grep -q "^[^#]*$entry" $file; then 
+          pass "$entry is present, So it's found to be compliant"
+        else
+          fail "$entry is not present, So it's found to be Non-compliant"
+        fi
     else
         fail "$directory is not present, So kindly create the file as per the standard document"
         break
@@ -142,7 +164,11 @@ Services=(
     "tnftp"
 )
 for entry in "${Services[@]}"; do
-dpkg-query -s $entry &>/dev/null && fail "$entry is installed on the server, Kindly confirm that this service is needed or not" || pass "$entry is not installed on the server, so found to be compliant"
+  if dpkg-query -s "$entry" &>/dev/null; then
+    fail "$entry is installed on the server, Kindly confirm that this service is needed or not"
+  else
+    pass "$entry is not installed on the server, so found to be compliant"
+  fi
 done
 
 
@@ -153,7 +179,7 @@ File=(
 )
 for entry in "${File[@]}"; do
 
-if [ -f $entry ]; then
+if [ -f "$entry" ]; then
     permission=$(stat -c "%a" "$entry")
     owner=$(stat -c "%U" "$entry")
     group=$(stat -c "%G" "$entry")
@@ -170,11 +196,15 @@ done
 
 
 #Ensure Blutooth Service are not in use
-dpkg-query -s bluez &>/dev/null && fail "Bluetooth service in Installed, kindly confim the need of this service" || pass "Bluetooth servive is not installed"
+if dpkg-query -s bluez &>/dev/null; then 
+  fail "Bluetooth service in Installed, kindly confim the need of this service" 
+else
+  pass "Bluetooth servive is not installed"
+fi
 
 
 #Ensure Kernel parameter has been configured 
-File="/etc/sysctl.conf"
+Filepath="/etc/sysctl.conf"
 
 
 #To Enable the setting use sysctl -w <parameter>=<value>
@@ -213,26 +243,32 @@ parameter=(
     "net.ipv6.conf.default.accept_ra=1" 
 )
 for entry in "${parameter[@]}"; do
-    grep -q "^[^#]*$entry" "$File" && pass "${entry%%:*} has been configured" || fail "${entry%%:*} has not configured properly"
+    if grep -q "^[^#]*$entry" "$Filepath"; then
+      pass "${entry%%:*} has been configured" 
+    else
+      fail "${entry%%:*} has not configured properly"
+    fi
 done
 
 
 #Ensure iptables-persistent is not installed with ufw
-dpkg-query -s iptables-persistent &>/dev/null && fail "Iptables-persistent has been installed, So found to be Non-Compliant" || pass "Iptables-persistent has not been installed, So found to be Compliant"
+#dpkg-query -s iptables-persistent &>/dev/null && fail "Iptables-persistent has been installed, So found to be Non-Compliant" || pass "Iptables-persistent has not been installed, So found to be Compliant"
 
 
 #Ensure ufw service is enabled
-dpkg-query -s ufw &>/dev/null && { 
-if ufw status numbered | grep -qE "22/tcp\s+Allow"; then
-    pass "ufw service had been enabled and TCP port 22 has been configured"
+if dpkg-query -s ufw &>/dev/null; then  
+  if ufw status numbered | grep -qE "22/tcp\s+Allow"; then
+      pass "ufw service had been enabled and TCP port 22 has been configured"
+  else
+      fail "TCP port 22 has not configured"
+  fi 
 else
-    fail "TCP port 22 has not configured"
-fi 
-} || fail "UFW firewall is not installed"
+  fail "UFW firewall is not installed"
+fi
 
 
 #Ensure nftables is installed
-dpkg-query -s nftables &>/dev/null && pass "nftable has been installed" || fail "nftable has not installed"
+#dpkg-query -s nftables &>/dev/null && pass "nftable has been installed" || fail "nftable has not installed"
 
 
 #Ensure a nftables table exists
@@ -282,7 +318,11 @@ parameter=(
 )
 for value in "${parameter[@]}"; do
 
-grep -q "^[^#]*$value" "/etc/ssh/sshd_config" && pass "The /etc/ssh/sshd_config file to set the $value is included" || fail "The /etc/ssh/sshd_config file to set the $value is not included" 
+if grep -q "^[^#]*$value" "/etc/ssh/sshd_config"; then
+  pass "The /etc/ssh/sshd_config file to set the $value is included"
+else
+  fail "The /etc/ssh/sshd_config file to set the $value is not included" 
+fi
 
 done
 
@@ -323,13 +363,20 @@ Parameter=(
 )
 
 for entry in "${Parameter[@]}"; do
-grep -q "^[^#]*$entry" "/etc/ssh/sshd_config" && pass "The /etc/ssh/sshd_config file to set  the $entry parameter is included" || fail "The /etc/ssh/sshd_config file to set the $entry parameter is not included" 
+if grep -q "^[^#]*$entry" "/etc/ssh/sshd_config"; then
+  pass "The /etc/ssh/sshd_config file to set  the $entry parameter is included" 
+else
+  fail "The /etc/ssh/sshd_config file to set the $entry parameter is not included" 
+fi
 done
 
 
 #Ensure users must provide password for privilege escalation
-grep -r "^[^#].*NOPASSWD" /etc/sudoers && fail "Kindly remove NOPASSWD field and change it into ALL=ALL(ALL)" || pass "There is no issue on the sudoers"
-
+if grep -r "^[^#].*NOPASSWD" /etc/sudoers; then
+  fail "Kindly remove NOPASSWD field and change it into ALL=ALL(ALL)"
+else
+  pass "There is no issue on the sudoers"
+fi
 
 path=(
     #Ensure pam_unix module is enabled
@@ -356,10 +403,14 @@ path=(
 
 for entry in "${path[@]}"; do
     location="${entry%%:*}"
-    parameter="${entry#*:}"
+    parameters="${entry#*:}"
 
     if [ -f "$location" ]; then
-        grep -q "^[[:space:]]*[^#].*$parameter" "$location" &>/dev/null && pass "$parameter is present in $location" || fail "$parameter is not present in $location"
+        if grep -q "^[[:space:]]*[^#].*$parameters" "$location" &>/dev/null; then
+          pass "$parameters is present in $location" 
+        else
+          fail "$parameters is not present in $location"
+        fi
     else
         fail "$location the itself not present"
     fi
@@ -377,10 +428,14 @@ path=(
 )
 for entry in "${path[@]}"; do
     location="${entry%%:*}"
-    parameter="${entry#*:}"
+    parameters="${entry#*:}"
     for entry1 in "$location"*.conf; do
         if [ -f "$entry1" ]; then
-            grep -q "^[^#]*$parameter" "$entry1" &>/dev/null && pass "$parameter is present in $entry1" || fail "$parameter is not present in $entry1"
+            if grep -q "^[^#]*$parameters" "$entry1" &>/dev/null; then
+              pass "$parameters is present in $entry1"
+            else
+              fail "$parameters is not present in $entry1"
+             fi
         else
             fail "$entry1 the itself not present"
         fi
@@ -399,15 +454,15 @@ path=(
 )
 for entry in "${path[@]}"; do
     location="${entry%%:*}"
-    parameter="${entry#*:}"
-    para_name="${parameter%% *}"
-    para_value="${parameter#* }"
+    parameters="${entry#*:}"
+    para_name="${parameters%% *}"
+    para_value="${parameters#* }"
 
     if [ -f "$location" ]; then
         if grep -Eq "^[[:space:]]*[^#]*${para_name}[[:space:]]+${para_value}" "$location"; then
-            pass "$parameter is present in $location" 
+            pass "$parameters is present in $location" 
         else 
-            fail "$parameter is not present in $location"
+            fail "$parameters is not present in $location"
         fi
     else
         fail "$location the itself not present"
@@ -416,7 +471,11 @@ done
 
 
 #Ensure nologin is not listed in /etc/shells
-grep -q "nologin" "/etc/shells" &>/dev/null && fail "Remove nologin from /etc/shells" || pass "nologin is not present in /etc/shells, so found to be compliant"
+if grep -q "nologin" "/etc/shells" &>/dev/null; then
+  fail "Remove nologin from /etc/shells"
+else
+  pass "nologin is not present in /etc/shells, so found to be compliant"
+fi
 
 
 #Ensure default user shell timeout is configured
@@ -427,11 +486,11 @@ path=(
 )
 
 for entry in "${path[@]}"; do
-    if [ -f $entry ]; then
+    if [ -f "$entry" ]; then
         if [ "$entry" == "/etc/profile.d" ]; then
             for entry1 in "$entry"/*.sh; do
-                if [ -f $entry1 ]; then
-                    if grep -Pzq '^[^#]*TMOUT=900\s*\n\s*readonly\sTMOUT\s*\n\s*export\sTMOUT' $entry1 || grep -Eq '^[^#]*readonly\sTMOUT=900\s;\sexport\sTMOUT' $entry1; then
+                if [ -f "$entry1" ]; then
+                    if grep -Pzq '^[^#]*TMOUT=900\s*\n\s*readonly\sTMOUT\s*\n\s*export\sTMOUT' "$entry1" || grep -Eq '^[^#]*readonly\sTMOUT=900\s;\sexport\sTMOUT' "$entry1"; then
                         pass "TMOUT is present in $entry1"
                     else
                         fail "TMOUT id not present in $entry1"
@@ -441,8 +500,8 @@ for entry in "${path[@]}"; do
                 fi
             done
         else
-            if [ -f $entry1 ]; then
-                if grep -Pzq '^[^#]*TMOUT=900\s*\n\s*readonly\sTMOUT\s*\n\s*export\sTMOUT' $entry || grep -Eq '^[^#]*readonly\sTMOUT=900\s;\sexport\sTMOUT' $entry; then
+            if [ -f "$entry1" ]; then
+                if grep -Pzq '^[^#]*TMOUT=900\s*\n\s*readonly\sTMOUT\s*\n\s*export\sTMOUT' "$entry" || grep -Eq '^[^#]*readonly\sTMOUT=900\s;\sexport\sTMOUT' "$entry"; then
                         pass "TMOUT is present in $entry"
                     else
                         fail "TMOUT id not present in $entry"
@@ -478,20 +537,20 @@ for entry in "${path[@]}"; do
         user=$(stat -c "%U" "$entry")
         group=$(stat -c "%G" "$entry")
 
-        if [ $entry == "/etc/security/opasswd" ] || [ $entry == "/etc/security/opasswd.old" ]; then
-            if [ $permission -eq 600 ] && [ "$user" == "root" ] && [ "$group" == "root" ]; then
+        if [ "$entry" == "/etc/security/opasswd" ] || [ "$entry" == "/etc/security/opasswd.old" ]; then
+            if [ "$permission" -eq 600 ] && [ "$user" == "root" ] && [ "$group" == "root" ]; then
                 pass "$entry permissions are set properly"
             else
                 fail "$entry check the file permissions"
             fi
-        elif [ $entry == "/etc/shadow" ] || [ $entry == "/etc/gshadow" ]; then
-            if [ $permission -eq 640 ] && [ "$user" == "root" ] && [ "$group" == "root" ]; then
+        elif [ "$entry" == "/etc/shadow" ] || [ "$entry" == "/etc/gshadow" ]; then
+            if [ "$permission" -eq 640 ] && [ "$user" == "root" ] && [ "$group" == "root" ]; then
                 pass "$entry permissions are set properly"
             else
                 fail "$entry check the file permissions"
             fi
         else 
-            if [ $permission -eq 644 ] && [ "$user" == "root" ] && [ "$group" == "root" ]; then
+            if [ "$permission" -eq 644 ] && [ "$user" == "root" ] && [ "$group" == "root" ]; then
                 pass "$entry permissions are set properly"
             else
                 fail "$entry check the file permissions"
@@ -519,8 +578,8 @@ path=(
 )
 
 for entry in "${path[@]}"; do
-    duplicate_ID=$(cut -d: -f3 $entry | sort | uniq -d)
-    duplicate_name=$(cut -d: -f1 $entry | sort | uniq -d)
+    duplicate_ID=$(cut -d: -f3 "$entry" | sort | uniq -d)
+    duplicate_name=$(cut -d: -f1 "$entry" | sort | uniq -d)
 
     if [ -n "$duplicate_ID" ]; then
         fail "Duplicate IDs are present in $entry"
